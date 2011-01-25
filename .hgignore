@@ -1,0 +1,5 @@
+syntax:glob
+bin
+src/Extras.java
+jhg.jar
+jhg-tests.jar
