@@ -1,0 +1,141 @@
+FileStructureWalker (pass HgFile, HgFolder to callable; which can ask for VCS data from any file)
+External uses: user browses files, selects one and asks for its history 
+Params: tip/revision; 
+Implementation: manifest
+
+Log --rev
+Log <file>
+HgDataFile.history() or Changelog.history(file)?
+
+
+Changelog.all() to return list with placeholder, not-parsed elements (i.e. read only compressedLen field and skip to next record), so that
+total number of elements in the list is correct
+
+hg cat
+Implementation: logic to find file by name in the repository is the same with Log and other commands
+
+
+Revlog
+What happens when big entry is added to a file - when it detects it can't longer fit into .i and needs .d? Inline flag and .i format changes?
+
+What's hg natural way to see nodeids of specific files (i.e. when I do 'hg --debug manifest -r 11' and see nodeid of some file, and 
+then would like to see what changeset this file came from)?
+
+----------
++ support patch from baseRev + few deltas (although done in a way patches are applied one by one instead of accumulated)
++ command-line samples (-R, filenames) (Log & Cat) to show on any repo
++buildfile + run samples
+*input stream impl + lifecycle. Step forward with FileChannel and ByteBuffer, although questionable accomplishment (looks bit complicated, cumbersome)
++ dirstate.mtime
++calculate sha1 digest for file to see I can deal with nodeid. +Do this correctly (smaller nodeid - first)
+*.hgignored processing
++Nodeid to keep 20 bytes always, Revlog.Inspector to get nodeid array of meaningful data exact size (nor heading 00 bytes, nor 12 extra bytes from the spec)
++DataAccess - implement memory mapped files, 
++Changeset to get index (local revision number)
++RevisionWalker (on manifest) and WorkingCopyWalker (io.File) talking to ? and/or dirstate (StatusCollector and WCSC) 
++RevlogStream - Inflater. Perhaps, InflaterStream instead? branch:wrap-data-access
++repo.status - use same collector class twice, difference as external code. add external walker that keeps collected maps and use it in Log operation to give files+,files-  
++ strip \1\n metadata out from RevlogStream
++ hash/digest long names for fncache
++Strip off metadata from beg of the stream - DataAccess (with rebase/moveBaseOffset(int)) would be handy
++ hg status, compare revision and local file with kw expansion and eol extension
+
+write code to convert inlined revlog to .i and .d
+
+delta merge
+DataAccess - collect debug info (buffer misses, file size/total read operations) to find out better strategy to buffer size detection. Compare performance.
+
+
+Parameterize StatusCollector to produce copy only when needed. And HgDataFile.metadata perhaps should be moved to cacheable place?
+
+Status operation from GUI - guess, usually on a file/subfolder, hence API should allow for starting path (unlike cmdline, seems useless to implement include/exclide patterns - GUI users hardly enter them, ever)
+  -> recently introduced FileWalker may perhaps help solving this (if starts walking from selected folder) for status op against WorkingDir?
+
+? Can I use fncache (names from it - perhaps, would help for Mac issues Alex mentioned)
+? Does fncache lists both .i and .d (iow, is it true hashed <long name>.d is different from hashed <long name>.i)
+ 
+??? encodings of fncache, .hgignore, dirstate
+??? http://mercurial.selenic.com/wiki/Manifest says "Multiple changesets may refer to the same manifest revision". To me, each changeset 
+changes repository, hence manifest should update nodeids of the files it lists, effectively creating new manifest revision.
+
+? subrepos in log, status (-S) and manifest commands
+
+? when p1 == -1, and p2 != -1, does HgStatusCollector.change() give correct result?
+
+Commands to get CommandContext where they may share various caches (e.g. StatusCollector)
+Perhaps, abstract classes for all Inspectors (i.e. StatusCollector.Inspector) for users to use as base classes to protect from change?
+
+-cancellation and progress support
+-timestamp check for revlog to recognize external changes
+-HgDate or any other better access to time info
+-(low) RepositoryComparator#calculateMissingBranches may query branches for the same head more than once 
+	(when there are few heads that end up with common nodes). e.g hg4j revision 7 against remote hg4j revision 206 
+
+>>>> Effective file read/data access
+ReadOperation, Revlog does: repo.getFileSystem().run(this.file, new ReadOperation(), long start=0, long end = -1)
+ReadOperation gets buffer (of whatever size, as decided by FS impl), parses it and then  reports if needs more data.
+This helps to ensure streams are closed after reading, allows caching (if the same file (or LRU) is read few times in sequence)
+and allows buffer management (i.e. reuse. Single buffer for all reads). 
+Scheduling multiple operations (in future, to deal with writes - single queue for FS operations - no locks?)
+
+WRITE: Need to register instances that cache files (e.g. dirstate or .hgignore) to FS notifier, so that cache may get cleared if the file changes (i.e. WriteOperation touches it).  
+
+File access:
+* NIO and mapped files - should be fast. Although seems to give less control on mem usage. 
+* Regular InputStreams and chunked stream on top - allocate List<byte[]>, each (but last) chunk of fixed size (depending on initial file size) 
+
+
+* API
+  + rename in .core Cset -> HgChangeset,
+  + rename in .repo Changeset to HgChangelog.Changeset, Changeset.Inspector -> HgChangelog.Inspector
+  - CommandContext
+  - Data access - not bytes, but ByteChannel
+  - HgRepository constants (TIP, BAD, WC) to HgRevisions enum
+  - RevisionMap to replace TreeMap<Integer, ?>
+  + .core.* rename to Hg*
+  + RepositoryTreeWalker to ManifestCommand to match other command classes 
+
+* defects
+  + ConfigFile to strip comments from values (#)
+
+<<<<<
+Performance.
+after pooling/caching in HgStatusCollector and HgChangeset
+hg log --debug -r 0:5000 and same via Log/HgLogCommand: approx. 220 seconds vs 279 seconds. Mem. cons. 20 vs 80 mb.
+after further changes in HgStatusCollector (to read ahead 5 elements, 50 max cache, fixed bug with -1) - hg4j dumps 5000 in
+93 seconds, memory consumption about 50-56 Mb
+
+IndexEntry(int offset, int baseRevision) got replaced with int[] arrays (offsets - optional)
+for 69338 revisions from cpython repo 1109408 bytes reduced to 277368 bytes with the new int[] version.
+I.e. total for changelog+manifest is 1,5 Mb+ gain   
+
+ParentWalker got arrays (Nodeid[] and int[]) instead of HashMap/LinkedHashSet. This change saves, per revision:
+was: LinkedHashSet$Entry:32 + HashMap$Entry:24 + HashMap.entries[]:4 (in fact, up to 8, given entries size is power of 2, and 69000+ 
+	elements in cpython test repo resulted in entries[131072].
+	total: (2 HashMaps) 32+(24+4)*2 = 88 bytes
+now: Nodeid[]:4 , int[]:4 bytes per entry. arrays of exact revlog size
+	total: (4 Nodeid[], 1 int[]) 4*4 + 4 = 20 bytes
+for cpython test repo with 69338 revisions, 1 387 224 instead of 4 931 512 bytes. Mem usage (TaskManager) ~50 Mb when 10000 revs read
+	
+<<<<<
+
+Tests:
+DataAccess - readBytes(length > memBufferSize, length*2 > memBufferSize) - to check impl is capable to read huge chunks of data, regardless of own buffer size
+
+ExecHelper('cmd', OutputParser()).run(). StatusOutputParser, LogOutputParser extends OutputParser. construct java result similar to that of cmd, compare results
+
+Need better MethodRule than ErrorCollector for tests run as java app (to print not only MultipleFailureException, but distinct errors)
+Also consider using ExternalResource and TemporaryFolder rules. 
+
+
+=================
+Naming:
+nodeid: revision
+int:	revisionIndex (alternatives: revisionNumber, localRevisionNumber)
+BUT, if class name bears Revision, may use 'index' and 'nodeid'
+NOT nodeid because although fileNodeid and changesetNodeid are ok (less to my likening than fileRevision, however), it's not clear how
+to name integer counterpart, just 'index' is unclear, need to denote nodeid and index are related. 'nodeidIndex' would be odd.
+Unfortunately, Revision would be a nice name for a class <int, Nodeid>. As long as I don't want to keep methods to access int/nodeid separately
+and not to stick to Revision struct only (to avoid massive instances of Revision<int,Nodeid> when only one is sufficient), I'll need to name
+these separate methods anyway. Present opinion is that I don't need the object right now (will have to live with RevisionObject or RevisionDescriptor
+once change my mind) 
