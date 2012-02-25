@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011 TMate Software Ltd
+ * Copyright (c) 2011-2012 TMate Software Ltd
  *  
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,11 +44,11 @@ public class HgInvalidFileException extends HgException {
 
 	public HgInvalidFileException(String message, Throwable th, File file) {
 		super(message, th);
-		localFile = file;
+		localFile = file; // allows null
 	}
 
 	public HgInvalidFileException setFile(File file) {
-		assert file != null;
+		assert file != null; // doesn't allow null not to clear file accidentally
 		localFile = file;
 		return this;
 	}
@@ -64,6 +64,8 @@ public class HgInvalidFileException extends HgException {
 	protected void appendDetails(StringBuilder sb) {
 		super.appendDetails(sb);
 		if (localFile != null) {
+			sb.append(';');
+			sb.append(' ');
 			sb.append(" file:");
 			sb.append(localFile.getPath());
 			sb.append(',');

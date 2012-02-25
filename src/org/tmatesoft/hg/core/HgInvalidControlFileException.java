@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011 TMate Software Ltd
+ * Copyright (c) 2011-2012 TMate Software Ltd
  *  
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,17 +19,20 @@ package org.tmatesoft.hg.core;
 import java.io.File;
 
 import org.tmatesoft.hg.internal.Experimental;
+import org.tmatesoft.hg.util.Path;
 
 /**
  * WORK IN PROGRESS
  * 
  * Subclass of {@link HgInvalidFileException} to indicate failure to deal with one of <b>Mercurial</b> control files 
  * (most likely those under .hg/, but also those residing in the repository, with special meaning to the Mercurial, like .hgtags or .hgignore)
+ * 
+ * XXX Perhaps, HgInvalidRevlogException?
  * @author Artem Tikhomirov
  * @author TMate Software Ltd.
  */
 @SuppressWarnings("serial")
-@Experimental(reason="WORK IN PROGRESS. Name is likely to change. Path argument to be added?")
+@Experimental(reason="WORK IN PROGRESS. Name is likely to change")
 public class HgInvalidControlFileException extends HgInvalidFileException {
 
 	public HgInvalidControlFileException(String message, Throwable th, File file) {
@@ -44,7 +47,16 @@ public class HgInvalidControlFileException extends HgInvalidFileException {
 	
 	@Override
 	public HgInvalidControlFileException setRevision(Nodeid r) {
-		super.setRevision(r);
-		return this;
+		return (HgInvalidControlFileException) super.setRevision(r);
+	}
+
+	@Override
+	public HgInvalidControlFileException setRevisionIndex(int rev) {
+		return (HgInvalidControlFileException) super.setRevisionIndex(rev);
+	}
+	
+	@Override
+	public HgInvalidControlFileException setFileName(Path name) {
+		return (HgInvalidControlFileException) super.setFileName(name);
 	}
 }
