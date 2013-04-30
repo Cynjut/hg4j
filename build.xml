@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ Copyright (c) 2010-2013 TMate Software Ltd
+  
+ This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; version 2 of the License.
+ 
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ 
+ For information on how to redistribute this software under
+ the terms of a license other than GNU General Public License
+ contact TMate Software at support@hg4j.com
+-->
+<project name="hg4j" default="samples">
+	<description>
+		Build, test and showcase hg4j
+		Targets:
+		  * build - compile and jar binary and source bundles
+		  * tests - run tests with JUnit
+		  * samples - few command-line counterparts to demonstrate basic capabiliites
+		  * rebuild - clean build
+	</description>
+
+	<property name="junit.jar" value="lib/junit-4.8.2.jar" />
+	<property name="ver.qualifier" value="" />
+	<property name="version.lib" value="1.1.0" />
+	<property name="version.jar" value="${version.lib}${ver.qualifier}" />
+	<property name="compile-with-debug" value="yes"/>
+
+	<property name="hg4j.jar" value="hg4j_${version.jar}.jar" />
+	<property name="hg4j-tests.jar" value="hg4j-tests_${version.jar}.jar" />
+	<property name="hg4j-console.jar" value="hg4j-console_${version.jar}.jar" />
+	<property name="hg4j-src.jar" value="hg4j-src_${version.jar}.jar" />
+	
+
+	<target name="samples" depends="build-cmdline" description="Run sample command-line tools">
+		<path id="path.cmdline" path="${hg4j.jar};${hg4j-console.jar}" />
+
+		<echo message="History of a specific file(s)" />
+		<java classpathref="path.cmdline" classname="org.tmatesoft.hg.console.Log">
+			<arg line="design.txt .classpath src/org/tmatesoft/hg/core/HgRepoFacade.java" />
+		</java>
+
+		<echo message="${line.separator}>>>Latest commit" />
+		<java classpathref="path.cmdline" classname="org.tmatesoft.hg.console.Log">
+			<arg line="--debug --limit 1" />
+		</java>
+
+		<echo message="${line.separator}>>>Content of a file" />
+		<java classpathref="path.cmdline" classname="org.tmatesoft.hg.console.Cat">
+			<arg line="src/org/tmatesoft/hg/core/HgRepoFacade.java --rev 1" />
+		</java>
+
+		<echo message="${line.separator}>>>Status between two revisions" />
+		<java classpathref="path.cmdline" classname="org.tmatesoft.hg.console.Status">
+			<arg line="--rev 140 --rev 142" />
+		</java>
+
+		<echo message="${line.separator}>>>Status, working copy, all" />
+		<java classpathref="path.cmdline" classname="org.tmatesoft.hg.console.Status">
+			<arg line="-A" />
+		</java>
+
+		<echo message="${line.separator}>>>Manifest" />
+		<java classpathref="path.cmdline" classname="org.tmatesoft.hg.console.Manifest">
+			<arg line="--debug" />
+		</java>
+	</target>
+
+	<target name="tests" depends="build-tests" description="Launch tests with JUnit">
+		<property name="test-repos-root" value="${java.io.tmpdir}/hg4j-tests/"/>
+		<delete dir="${test-repos-root}" quiet="yes"/>
+		<unjar src="test-data/test-repos.jar" dest="${test-repos-root}"/>
+		<junit>
+			<classpath path="${hg4j.jar};${hg4j-tests.jar};${junit.jar}" />
+			<formatter type="xml" />
+			<formatter type="plain" usefile="no" />
+			<sysproperty key="hg4j.tests.repos" value="${test-repos-root}"/>
+			<sysproperty key="hg4j.tests.remote" value="http://hg.serpentine.com/tutorial/hello"/>
+			<test name="org.tmatesoft.hg.test.TestIntMap" />
+			<test name="org.tmatesoft.hg.test.TestAuxUtilities" />
+			<test name="org.tmatesoft.hg.test.TestConfigFileParser" />
+			<test name="org.tmatesoft.hg.test.TestHistory" />
+			<test name="org.tmatesoft.hg.test.TestManifest" />
+			<test name="org.tmatesoft.hg.test.TestStatus" />
+			<test name="org.tmatesoft.hg.test.TestStorePath" />
+			<test name="org.tmatesoft.hg.test.TestNewlineFilter" />
+			<test name="org.tmatesoft.hg.test.TestIgnore" />
+			<test name="org.tmatesoft.hg.test.TestDirstate" />
+			<test name="org.tmatesoft.hg.test.TestBranches" />
+			<test name="org.tmatesoft.hg.test.TestByteChannel" />
+			<test name="org.tmatesoft.hg.test.TestSubrepo" />
+			<test name="org.tmatesoft.hg.test.TestClone" />
+			<test name="org.tmatesoft.hg.test.TestIncoming" />
+			<test name="org.tmatesoft.hg.test.TestOutgoing" />
+			<test name="org.tmatesoft.hg.test.TestPhases" />
+			<test name="org.tmatesoft.hg.test.TestMqExtension" />
+			<test name="org.tmatesoft.hg.test.TestFileFlags" />
+			<test name="org.tmatesoft.hg.test.TestCatCommand" />
+			<test name="org.tmatesoft.hg.test.TestRevert" />
+			<test name="org.tmatesoft.hg.test.TestCheckout" />
+			<test name="org.tmatesoft.hg.test.TestAddRemove" />
+			<test name="org.tmatesoft.hg.test.TestCommit" />
+			<test name="org.tmatesoft.hg.test.TestBlame" />
+			<test name="org.tmatesoft.hg.test.TestDiffHelper" />
+		</junit>
+	</target>
+
+	<!-- -->
+	<target name="build" depends="build-lib, build-cmdline, build-tests" description="Compile and bundle all jars">
+		<jar destfile="${hg4j-src.jar}">
+			<fileset dir="src/" includes="org/tmatesoft/hg/**" />
+			<fileset dir="test/" includes="org/tmatesoft/hg/**" />
+			<fileset dir="cmdline/" includes="org/tmatesoft/hg/**" />
+			<fileset file="COPYING"/>
+		</jar>
+	</target>
+	
+	<target name="rebuild" depends="cleanup, build" description="Clean and build again"/>
+	
+	<target name="cleanup">
+		<delete dir="bin/" description="Compiled classes"/>
+		<delete description="Jars">
+			<fileset dir="." includes="${hg4j-console.jar}, ${hg4j-src.jar}, ${hg4j-tests.jar}, ${hg4j.jar}"/>
+		</delete>
+		<delete description="Tests artifacts">
+			<fileset dir="." includes="TEST-*.xml"/>
+		</delete>
+	</target>
+
+	<target name="build-lib">
+		<mkdir dir="bin" />
+		<javac srcdir="src" destdir="bin" debug="${compile-with-debug}" includeantruntime="no"/>
+		<jar destfile="${hg4j.jar}">
+			<fileset dir="bin/">
+				<include name="org/tmatesoft/hg/core/**" />
+				<include name="org/tmatesoft/hg/util/**" />
+				<include name="org/tmatesoft/hg/repo/**" />
+				<include name="org/tmatesoft/hg/internal/**" />
+			</fileset>
+			<fileset file="COPYING"/>
+		</jar>
+	</target>
+
+	<target name="build-tests" depends="build-lib">
+		<mkdir dir="bin" />
+		<javac srcdir="test" destdir="bin" debug="${compile-with-debug}" >
+			<classpath>
+				<pathelement location="${hg4j.jar}"/>
+				<pathelement location="${junit.jar}"/>
+			</classpath>
+		</javac>
+		<jar destfile="${hg4j-tests.jar}">
+			<fileset dir="bin" includes="org/tmatesoft/hg/test/**"/>
+			<fileset dir="bin" includes="org/tmatesoft/hg/tools/**"/>
+			<fileset file="COPYING"/>
+			<!-- XXX perhaps, shall include test-data as well? -->
+		</jar>
+	</target>
+
+	<target name="build-cmdline" depends="build-lib">
+		<mkdir dir="bin" />
+		<javac srcdir="cmdline" destdir="bin" debug="${compile-with-debug}">
+			<classpath>
+				<pathelement location="${hg4j.jar}"/>
+				<pathelement location="${junit.jar}"/>
+			</classpath>
+		</javac>
+		<jar destfile="${hg4j-console.jar}">
+			<fileset dir="bin/" includes="org/tmatesoft/hg/console/**"/>
+			<fileset file="COPYING"/>
+		</jar>
+	</target>
+	
+</project>
