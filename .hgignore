@@ -1,0 +1,6 @@
+syntax:glob
+bin
+hg4j*.jar
+TEST-*.xml
+build/
+.gradle/
