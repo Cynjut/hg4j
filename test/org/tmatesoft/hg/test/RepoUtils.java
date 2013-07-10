@@ -34,6 +34,7 @@ import junit.framework.Assert;
 
 import org.tmatesoft.hg.core.HgException;
 import org.tmatesoft.hg.core.HgInitCommand;
+import org.tmatesoft.hg.core.Nodeid;
 import org.tmatesoft.hg.internal.FileUtils;
 import org.tmatesoft.hg.internal.StreamLogFacility;
 import org.tmatesoft.hg.repo.HgRepository;
@@ -114,7 +115,7 @@ public class RepoUtils {
 				throw new UnsupportedOperationException();
 			}
 		};
-		FileUtils fu = new FileUtils(new StreamLogFacility(Debug, true, System.err));
+		FileUtils fu = new FileUtils(new StreamLogFacility(Debug, true, System.err), RepoUtils.class);
 		String srcPrefix = srcDir.getAbsolutePath();
 		while (it.hasNext()) {
 			File next = it.next();
@@ -189,5 +190,19 @@ public class RepoUtils {
 			next.delete();
 		}
 		dest.delete();
+	}
+
+	static Nodeid[] allRevisions(HgRepository repo) {
+		Nodeid[] allRevs = new Nodeid[repo.getChangelog().getRevisionCount()];
+		for (int i = 0; i < allRevs.length; i++) {
+			allRevs[i] = repo.getChangelog().getRevision(i);
+		}
+		return allRevs;
+	}
+
+	static void assertHgVerifyOk(ErrorCollectorExt errorCollector, File repoLoc) throws InterruptedException, IOException {
+		ExecHelper verifyRun = new ExecHelper(new OutputParser.Stub(), repoLoc);
+		verifyRun.run("hg", "verify");
+		errorCollector.assertEquals("hg verify", 0, verifyRun.getExitValue());
 	}
 }

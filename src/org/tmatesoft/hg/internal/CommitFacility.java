@@ -42,6 +42,7 @@ import org.tmatesoft.hg.core.Nodeid;
 import org.tmatesoft.hg.internal.DataSerializer.DataSource;
 import org.tmatesoft.hg.repo.HgChangelog;
 import org.tmatesoft.hg.repo.HgDataFile;
+import org.tmatesoft.hg.repo.HgPhase;
 import org.tmatesoft.hg.repo.HgRuntimeException;
 import org.tmatesoft.hg.util.Pair;
 import org.tmatesoft.hg.util.Path;
@@ -156,7 +157,7 @@ public final class CommitFacility {
 				newlyAddedFiles.put(df.getPath(), contentStream);
 			}
 			RevlogStreamWriter fileWriter = new RevlogStreamWriter(repo, contentStream, transaction);
-			Nodeid fileRev = fileWriter.addRevision(bds, clogRevisionIndex, fp.first(), fp.second());
+			Nodeid fileRev = fileWriter.addRevision(bds, clogRevisionIndex, fp.first(), fp.second()).second();
 			newManifestRevision.put(df.getPath(), fileRev);
 			touchInDirstate.add(df.getPath());
 		}
@@ -167,7 +168,7 @@ public final class CommitFacility {
 			manifestBuilder.add(me.getKey().toString(), me.getValue());
 		}
 		RevlogStreamWriter manifestWriter = new RevlogStreamWriter(repo, repo.getImplAccess().getManifestStream(), transaction);
-		Nodeid manifestRev = manifestWriter.addRevision(manifestBuilder, clogRevisionIndex, manifestParents.first(), manifestParents.second());
+		Nodeid manifestRev = manifestWriter.addRevision(manifestBuilder, clogRevisionIndex, manifestParents.first(), manifestParents.second()).second();
 		//
 		// Changelog
 		final ChangelogEntryBuilder changelogBuilder = new ChangelogEntryBuilder();
@@ -176,7 +177,7 @@ public final class CommitFacility {
 		changelogBuilder.user(String.valueOf(user));
 		changelogBuilder.manifest(manifestRev).comment(message);
 		RevlogStreamWriter changelogWriter = new RevlogStreamWriter(repo, repo.getImplAccess().getChangelogStream(), transaction);
-		Nodeid changesetRev = changelogWriter.addRevision(changelogBuilder, clogRevisionIndex, p1Commit, p2Commit);
+		Nodeid changesetRev = changelogWriter.addRevision(changelogBuilder, clogRevisionIndex, p1Commit, p2Commit).second();
 		// TODO move fncache update to an external facility, along with dirstate and bookmark update
 		if (!newlyAddedFiles.isEmpty() && repo.fncacheInUse()) {
 			FNCacheFile fncache = new FNCacheFile(repo);
@@ -234,6 +235,9 @@ public final class CommitFacility {
 		if (p1Commit != NO_REVISION || p2Commit != NO_REVISION) {
 			repo.getRepo().getBookmarks().updateActive(p1Cset, p2Cset, changesetRev);
 		}
+		PhasesHelper phaseHelper = new PhasesHelper(repo);
+		HgPhase newCommitPhase = HgPhase.parse(repo.getRepo().getConfiguration().getStringValue("phases", "new-commit", HgPhase.Draft.mercurialString()));
+		phaseHelper.newCommitNode(changesetRev, newCommitPhase);
 		// TODO Revisit: might be reasonable to send out a "Repo changed" notification, to clear
 		// e.g. cached branch, tags and so on, not to rely on file change detection methods?
 		// The same notification might come useful once Pull is implemented
@@ -254,7 +258,7 @@ public final class CommitFacility {
 		} catch (IOException ex) {
 			throw new HgIOException("Failed to save last commit message", ex, lastMessage);
 		} finally {
-			new FileUtils(repo.getLog()).closeQuietly(w, lastMessage);
+			new FileUtils(repo.getLog(), this).closeQuietly(w, lastMessage);
 		}
 	}
 /*

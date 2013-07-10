@@ -142,7 +142,7 @@ public final class Internals implements SessionContext.Source {
 		final PropertyMarshal pm = new PropertyMarshal(ctx);
 		boolean shallCacheRevlogsInRepo = pm.getBoolean(CFG_PROPERTY_REVLOG_STREAM_CACHE, true);
 		streamProvider = new RevlogStreamFactory(this, shallCacheRevlogsInRepo); 
-		shallMergePatches = pm.getBoolean(Internals.CFG_PROPERTY_PATCH_MERGE, false);
+		shallMergePatches = pm.getBoolean(Internals.CFG_PROPERTY_PATCH_MERGE, true);
 	}
 	
 	public boolean isInvalid() {
@@ -150,12 +150,16 @@ public final class Internals implements SessionContext.Source {
 	}
 	
 	public File getRepositoryFile(HgRepositoryFiles f) {
-		return f.residesUnderRepositoryRoot() ? getFileFromRepoDir(f.getName()) : new File(repo.getWorkingDir(), f.getName());
+		switch (f.getHome()) {
+			case Store : return getFileFromStoreDir(f.getName());
+			case Repo : return getFileFromRepoDir(f.getName());
+			default : return new File(repo.getWorkingDir(), f.getName());
+		}
 	}
 
 	/**
 	 * Access files under ".hg/".
-	 * File not necessarily exists, this method is merely a factory for Files at specific, configuration-dependent location. 
+	 * File not necessarily exists, this method is merely a factory for {@link File files} at specific, configuration-dependent location. 
 	 * 
 	 * @param name shall be normalized path
 	 */

@@ -18,22 +18,25 @@ package org.tmatesoft.hg.internal;
 
 import static org.tmatesoft.hg.repo.HgPhase.Draft;
 import static org.tmatesoft.hg.repo.HgPhase.Secret;
-import static org.tmatesoft.hg.util.LogFacility.Severity.Info;
+import static org.tmatesoft.hg.repo.HgRepositoryFiles.Phaseroots;
 import static org.tmatesoft.hg.util.LogFacility.Severity.Warn;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 
 import org.tmatesoft.hg.core.HgChangeset;
+import org.tmatesoft.hg.core.HgIOException;
 import org.tmatesoft.hg.core.Nodeid;
 import org.tmatesoft.hg.repo.HgChangelog;
 import org.tmatesoft.hg.repo.HgInvalidControlFileException;
+import org.tmatesoft.hg.repo.HgInvalidStateException;
 import org.tmatesoft.hg.repo.HgParentChildMap;
 import org.tmatesoft.hg.repo.HgPhase;
 import org.tmatesoft.hg.repo.HgRepository;
@@ -76,7 +79,10 @@ public final class PhasesHelper {
 		}
 		return repoSupporsPhases.booleanValue();
 	}
-
+	
+	public boolean withSecretRoots() {
+		return !secretPhaseRoots.isEmpty();
+	}
 
 	/**
 	 * @param cset revision to query
@@ -130,21 +136,104 @@ public final class PhasesHelper {
 			}
 		}
 		return HgPhase.Public;
+	}
 
+
+	/**
+	 * @return all revisions with secret phase
+	 */
+	public RevisionSet allSecret() {
+		return allOf(HgPhase.Secret);
+	}
+	
+	/**
+	 * @return all revisions with draft phase
+	 */
+	public RevisionSet allDraft() {
+		return allOf(HgPhase.Draft).subtract(allOf(HgPhase.Secret));
+	}
+	
+	public void updateRoots(Collection<Nodeid> draftRoots, Collection<Nodeid> secretRoots) throws HgInvalidControlFileException {
+		draftPhaseRoots = draftRoots.isEmpty() ? Collections.<Nodeid>emptyList() : new ArrayList<Nodeid>(draftRoots);
+		secretPhaseRoots = secretRoots.isEmpty() ? Collections.<Nodeid>emptyList() : new ArrayList<Nodeid>(secretRoots);
+		String fmt = "%d %s\n";
+		File phaseroots = repo.getRepositoryFile(Phaseroots);
+		FileWriter fw = null;
+		try {
+			fw = new FileWriter(phaseroots);
+			for (Nodeid n : secretPhaseRoots) {
+				fw.write(String.format(fmt, HgPhase.Secret.mercurialOrdinal(), n.toString()));
+			}
+			for (Nodeid n : draftPhaseRoots) {
+				fw.write(String.format(fmt, HgPhase.Draft.mercurialOrdinal(), n.toString()));
+			}
+			fw.flush();
+		} catch (IOException ex) {
+			throw new HgInvalidControlFileException(ex.getMessage(), ex, phaseroots);
+		} finally {
+			new FileUtils(repo.getLog(), this).closeQuietly(fw);
+		}
+	}
+
+	public void newCommitNode(Nodeid newChangeset, HgPhase newCommitPhase) throws HgRuntimeException {
+		final int riCset = repo.getRepo().getChangelog().getRevisionIndex(newChangeset);
+		HgPhase ph = getPhase(riCset, newChangeset);
+		if (ph.compareTo(newCommitPhase) >= 0) {
+			// present phase is more secret than the desired one
+			return;
+		}
+		// newCommitPhase can't be public here, condition above would be satisfied
+		assert newCommitPhase != HgPhase.Public;
+		// ph is e.g public when newCommitPhase is draft
+		// or is draft when desired phase is secret
+		final RevisionSet rs = allOf(newCommitPhase).union(new RevisionSet(Collections.singleton(newChangeset)));
+		final RevisionSet newRoots;
+		if (parentHelper != null) {
+			newRoots = rs.roots(parentHelper);
+		} else {
+			newRoots = rs.roots(repo.getRepo());
+		}
+		if (newCommitPhase == HgPhase.Draft) {
+			updateRoots(newRoots.asList(), secretPhaseRoots);
+		} else if (newCommitPhase == HgPhase.Secret) {
+			updateRoots(draftPhaseRoots, newRoots.asList());
+		} else {
+			throw new HgInvalidStateException(String.format("Unexpected phase %s for new commits", newCommitPhase));
+		}
+	}
+
+	/**
+	 * For a given phase, collect all revisions with phase that is the same or more private (i.e. for Draft, returns Draft+Secret)
+	 * The reason is not a nice API intention (which is awful, indeed), but an ease of implementation 
+	 */
+	private RevisionSet allOf(HgPhase phase) {
+		assert phase != HgPhase.Public;
+		if (!isCapableOfPhases()) {
+			return new RevisionSet(Collections.<Nodeid>emptyList());
+		}
+		final List<Nodeid> roots = getPhaseRoots(phase);
+		if (parentHelper != null) {
+			return new RevisionSet(roots).union(new RevisionSet(parentHelper.childrenOf(roots)));
+		} else {
+			RevisionSet rv = new RevisionSet(Collections.<Nodeid>emptyList());
+			for (RevisionDescendants rd : getPhaseDescendants(phase)) {
+				rv = rv.union(rd.asRevisionSet());
+			}
+			return rv;
+		}
 	}
 
 	private Boolean readRoots() throws HgRuntimeException {
-		File phaseroots = repo.getFileFromStoreDir("phaseroots"); // TODO into HgRepositoryFiles
-		BufferedReader br = null;
+		File phaseroots = repo.getRepositoryFile(Phaseroots);
 		try {
 			if (!phaseroots.exists()) {
 				return Boolean.FALSE;
 			}
+			LineReader lr = new LineReader(phaseroots, repo.getLog());
+			final Collection<String> lines = lr.read(new LineReader.SimpleLineCollector(), new LinkedList<String>());
 			HashMap<HgPhase, List<Nodeid>> phase2roots = new HashMap<HgPhase, List<Nodeid>>();
-			br = new BufferedReader(new FileReader(phaseroots));
-			String line;
-			while ((line = br.readLine()) != null) {
-				String[] lc = line.trim().split("\\s+");
+			for (String line : lines) {
+				String[] lc = line.split("\\s+");
 				if (lc.length == 0) {
 					continue;
 				}
@@ -167,17 +256,8 @@ public final class PhasesHelper {
 			}
 			draftPhaseRoots = phase2roots.containsKey(Draft) ? phase2roots.get(Draft) : Collections.<Nodeid>emptyList();
 			secretPhaseRoots = phase2roots.containsKey(Secret) ? phase2roots.get(Secret) : Collections.<Nodeid>emptyList();
-		} catch (IOException ex) {
-			throw new HgInvalidControlFileException(ex.toString(), ex, phaseroots);
-		} finally {
-			if (br != null) {
-				try {
-					br.close();
-				} catch (IOException ex) {
-					repo.getSessionContext().getLog().dump(getClass(), Info, ex, null);
-					// ignore the exception otherwise 
-				}
-			}
+		} catch (HgIOException ex) {
+			throw new HgInvalidControlFileException(ex, true);
 		}
 		return Boolean.TRUE;
 	}
