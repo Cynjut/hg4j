@@ -95,7 +95,14 @@ public final class LineReader {
 			return this;
 		}
 
-		public <T> void read(LineConsumer<T> consumer, T paramObj) throws HgIOException {
+		/**
+		 * 
+		 * @param consumer where to pipe read lines to
+		 * @param paramObj parameterizes consumer
+		 * @return paramObj value for convenience
+		 * @throws HgIOException if there's {@link IOException} while reading file
+		 */
+		public <T> T read(LineConsumer<T> consumer, T paramObj) throws HgIOException {
 			BufferedReader statusFileReader = null;
 			try {
 //				consumer.begin(file, paramObj);
@@ -119,10 +126,11 @@ public final class LineReader {
 						ok = consumer.consume(line, paramObj);
 					}
 				}
+				return paramObj;
 			} catch (IOException ex) {
 				throw new HgIOException(ex.getMessage(), ex, file);
 			} finally {
-				new FileUtils(log).closeQuietly(statusFileReader);
+				new FileUtils(log, this).closeQuietly(statusFileReader);
 //				try {
 //					consumer.end(file, paramObj);
 //				} catch (IOException ex) {

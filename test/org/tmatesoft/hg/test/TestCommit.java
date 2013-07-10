@@ -20,7 +20,6 @@ import static org.junit.Assert.*;
 import static org.tmatesoft.hg.repo.HgRepository.*;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.List;
 
 import org.junit.Rule;
@@ -44,7 +43,9 @@ import org.tmatesoft.hg.internal.Internals;
 import org.tmatesoft.hg.internal.Transaction;
 import org.tmatesoft.hg.repo.HgDataFile;
 import org.tmatesoft.hg.repo.HgLookup;
+import org.tmatesoft.hg.repo.HgPhase;
 import org.tmatesoft.hg.repo.HgRepository;
+import org.tmatesoft.hg.repo.HgRepositoryFiles;
 import org.tmatesoft.hg.util.Outcome;
 import org.tmatesoft.hg.util.Path;
 
@@ -158,7 +159,7 @@ public class TestCommit {
 		// check if cached value in hgRepo got updated
 		errorCollector.assertEquals("branch1", hgRepo.getWorkingCopyBranchName());
 		//
-		assertHgVerifyOk(repoLoc);
+		RepoUtils.assertHgVerifyOk(errorCollector, repoLoc);
 	}
 
 	/**
@@ -190,7 +191,7 @@ public class TestCommit {
 		new HgCatCommand(hgRepo).file(Path.create("xx")).changeset(commitRev).execute(sink);
 		assertArrayEquals("xyz".getBytes(), sink.toArray());
 		//
-		assertHgVerifyOk(repoLoc);
+		RepoUtils.assertHgVerifyOk(errorCollector, repoLoc);
 	}
 	/**
 	 * perform few commits one by one, into different branches
@@ -238,12 +239,14 @@ public class TestCommit {
 		errorCollector.assertEquals("FIRST", c1.getComment());
 		errorCollector.assertEquals("SECOND", c2.getComment());
 		errorCollector.assertEquals("THIRD", c3.getComment());
-		assertHgVerifyOk(repoLoc);
+		RepoUtils.assertHgVerifyOk(errorCollector, repoLoc);
 	}
 	
 	@Test
 	public void testCommandBasics() throws Exception {
 		File repoLoc = RepoUtils.cloneRepoToTempLocation("log-1", "test-commit-cmd", false);
+		// PhasesHelper relies on file existence to tell phase enablement
+		RepoUtils.createFile(new File(repoLoc, HgRepositoryFiles.Phaseroots.getPath()), "");
 		HgRepository hgRepo = new HgLookup().detect(repoLoc);
 		HgDataFile dfB = hgRepo.getFileNode("b");
 		assertTrue("[sanity]", dfB.exists());
@@ -285,7 +288,13 @@ public class TestCommit {
 		errorCollector.assertEquals(csets.get(1).getNodeid(), c2);
 		errorCollector.assertEquals(csets.get(0).getComment(), "FIRST");
 		errorCollector.assertEquals(csets.get(1).getComment(), "SECOND");
-		assertHgVerifyOk(repoLoc);
+		RepoUtils.assertHgVerifyOk(errorCollector, repoLoc);
+		// new commits are drafts by default, check our commit respects this
+		// TODO more tests with children of changesets with draft, secret or public phases (latter - 
+		// new commit is child of public, but there are other commits with draft/secret phases - ensure they are intact)
+		assertEquals(HgPhase.Draft, HgPhase.parse(hgRepo.getConfiguration().getStringValue("phases", "new-commit", HgPhase.Draft.mercurialString())));
+		errorCollector.assertEquals(HgPhase.Draft, csets.get(0).getPhase());
+		errorCollector.assertEquals(HgPhase.Draft, csets.get(1).getPhase());
 	}
 	
 	@Test
@@ -478,13 +487,7 @@ public class TestCommit {
 		errorCollector.assertTrue(status.get(Kind.Modified).contains(dfB.getPath()));
 		errorCollector.assertTrue(status.get(Kind.Removed).contains(dfD.getPath()));
 		
-		assertHgVerifyOk(repoLoc);
-	}
-	
-	private void assertHgVerifyOk(File repoLoc) throws InterruptedException, IOException {
-		ExecHelper verifyRun = new ExecHelper(new OutputParser.Stub(), repoLoc);
-		verifyRun.run("hg", "verify");
-		errorCollector.assertEquals("hg verify", 0, verifyRun.getExitValue());
+		RepoUtils.assertHgVerifyOk(errorCollector, repoLoc);
 	}
 	
 	private Transaction newTransaction(SessionContext.Source ctxSource) {

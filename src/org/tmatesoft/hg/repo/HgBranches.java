@@ -118,15 +118,16 @@ public class HgBranches {
 			repo.getSessionContext().getLog().dump(getClass(), Error, ex, null);
 			// FALL THROUGH
 		} finally {
-			new FileUtils(repo.getSessionContext().getLog()).closeQuietly(br);
+			new FileUtils(repo.getSessionContext().getLog(), this).closeQuietly(br);
 		}
 		return -1; // deliberately not lastInCache, to avoid anything but -1 when 1st line was read and there's error is in lines 2..end
 	}
-
+	
 	void collect(final ProgressSupport ps) throws HgRuntimeException {
 		branches.clear();
 		final HgRepository repo = internalRepo.getRepo();
 		final HgChangelog clog = repo.getChangelog();
+		final HgRevisionMap<HgChangelog> rmap;
 		ps.start(1 + clog.getRevisionCount() * 2);
 		//
 		int lastCached = readCache();
@@ -195,8 +196,10 @@ public class HgBranches {
 				}
 				branches.put(bn, bi);
 			}
+			rmap = pw.getRevisionMap();
+		} else { // !cacheActual
+			rmap = new HgRevisionMap<HgChangelog>(clog).init(); 
 		}
-		final HgRevisionMap<HgChangelog> rmap = new HgRevisionMap<HgChangelog>(clog).init();
 		for (BranchInfo bi : branches.values()) {
 			bi.validate(clog, rmap);
 		}
